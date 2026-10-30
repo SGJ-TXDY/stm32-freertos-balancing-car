@@ -1,0 +1,23 @@
+name: Firmware build
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  gcc:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GNU Arm Embedded
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+      - name: Check project structure
+        run: python3 scripts/check_project.py
+      - name: Build firmware
+        run: python3 scripts/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stm32-freertos-firmware
+          path: |
+            build/balancing-car.elf
+            build/balancing-car.hex
+            build/balancing-car.bin
+            build/balancing-car.map

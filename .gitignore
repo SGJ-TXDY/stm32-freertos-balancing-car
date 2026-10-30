@@ -1,0 +1,71 @@
+# ====================
+# 通用 .gitignore 小白版
+# ====================
+
+# 依赖文件夹
+node_modules/
+vendor/
+
+# 打包输出
+dist/
+build/
+out/
+pdf/
+
+# 系统文件 (Windows)
+Thumbs.db
+.DS_Store
+*.log
+*.tmp
+*.temp
+
+# 编辑器配置
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 密码/配置
+.env
+config.local.js
+password.txt
+task.md
+记录.md
+
+# Firmware output and local Keil state
+*.o
+*.d
+*.crf
+*.lst
+*.map
+*.axf
+*.hex
+*.bin
+*.elf
+*.dep
+*.lnp
+*.sct
+*.uvguix.*
+*.uvoptx
+*.orig
+*.bak
+/cubemx_config/MDK-ARM/cubemx_config/
+/cubemx_config/MDK-ARM/DebugConfig/
+/cubemx_config/MDK-ARM/RTE/
+/cubemx_config/MDK-ARM/EventRecorderStub.scvd
+/cubemx_config/.mxproject
+
+# Unused CMSIS examples, docs and binary libraries from the source archive
+/cubemx_config/Drivers/CMSIS/Core/
+/cubemx_config/Drivers/CMSIS/Core_A/
+/cubemx_config/Drivers/CMSIS/DSP/
+/cubemx_config/Drivers/CMSIS/NN/
+/cubemx_config/Drivers/CMSIS/Lib/
+/cubemx_config/Drivers/CMSIS/docs/
+/cubemx_config/Drivers/CMSIS/RTOS/
+/cubemx_config/Drivers/CMSIS/RTOS2/
+empty.txt
+/README.en.md
+.env.*
+.tools/
+__pycache__/

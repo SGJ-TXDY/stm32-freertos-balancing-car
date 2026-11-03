@@ -50,6 +50,7 @@ static void ControlTask(void *argument)
 
     for (;;) {
         int left, right, fresh;
+        /* DMP_Pitch drains queued FIFO packets. Hold the bus until the newest one is published. */
         App_I2C_Lock();
         fresh = (DMP_Pitch() == 0);
         App_I2C_Unlock();

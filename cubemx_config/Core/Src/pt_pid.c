@@ -1,7 +1,7 @@
 #include "pt_pid.h"
 
 //速度环输出
-int sudu_out = 0.0f;
+int sudu_out = 0;
 
 //直立环输出
 int zhili_out = 0;
@@ -34,40 +34,41 @@ int zhili(float Angle, float Gyro)
     return pwm_zhili;
 }
 
-static int Encoder;
-static int Encoder_Integral;
+/* Float state: an int filter truncates Encoder_Least * 0.2, so errors of
+ * a few counts never enter the integrator and the car drifts. */
+static float Encoder;
+static float Encoder_Integral;
 
 void PID_Reset(void)
 {
-    Encoder = 0;
-    Encoder_Integral = 0;
+    Encoder = 0.0f;
+    Encoder_Integral = 0.0f;
 }
 
 // 速度环
 int sudu(int encoder_left, int encoder_right)
 {
-    int pwm_sudu, Encoder_Least;
-
+    float pwm;
+    int Encoder_Least;
 
     Encoder_Least = (encoder_left + encoder_right) - Movement; //获取最新速度偏差==测量速度（左右编码器之和）-目标速度（此次为零）
-    Encoder *= 0.8;                                                 //一阶低通滤波器
-    Encoder += Encoder_Least * 0.2;                             //一阶低通滤波器
+    Encoder = Encoder * 0.8f + (float)Encoder_Least * 0.2f;    //一阶低通滤波器
     Encoder_Integral += Encoder;                                //积分出位移 积分时间：5ms
 
-    if (Encoder_Integral > 3500)
+    if (Encoder_Integral > 3500.0f)
     {
-        Encoder_Integral = 3500;  //积分限幅
+        Encoder_Integral = 3500.0f;  //积分限幅
     }
-    if (Encoder_Integral < -3500)
+    if (Encoder_Integral < -3500.0f)
     {
-        Encoder_Integral = -3500; //积分限幅
+        Encoder_Integral = -3500.0f; //积分限幅
     }
 
-    pwm_sudu = sudu_Kp * Encoder + sudu_Ki * Encoder_Integral;     //速度PI控制器
+    pwm = sudu_Kp * Encoder + sudu_Ki * Encoder_Integral;     //速度PI控制器
     if ((gGlobalData.PitchAngle >= 80) || (gGlobalData.PitchAngle <= -80)) //小车跌倒后清零
     {
-        Encoder_Integral = 0;
+        Encoder_Integral = 0.0f;
     }
 
-    return pwm_sudu;
+    return (int)pwm;
 }

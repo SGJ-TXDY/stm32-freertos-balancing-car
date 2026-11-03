@@ -116,14 +116,26 @@ static const uint8_t OLED_F6x8[][6] =
 
 /* ========================= 内部底层函数 ========================= */
 
+static void OLED_Tx(uint8_t *buf, uint16_t len)
+{
+    HAL_StatusTypeDef status;
+    App_I2C_Lock();
+    status = HAL_I2C_Master_Transmit(&OLED_I2C_HANDLER, OLED_I2C_ADDR,
+                                    buf, len, APP_I2C_TIMEOUT_MS);
+    if (I2C2_Check(status, "I2C ERR oled\r\n") == 1) {
+        status = HAL_I2C_Master_Transmit(&OLED_I2C_HANDLER, OLED_I2C_ADDR,
+                                        buf, len, APP_I2C_TIMEOUT_MS);
+        I2C2_Check(status, "I2C ERR oled\r\n");
+    }
+    App_I2C_Unlock();
+}
+
 static void OLED_WriteCmd(uint8_t cmd)
 {
     uint8_t buf[2];
     buf[0] = 0x00;
     buf[1] = cmd;
-    App_I2C_Lock();
-    HAL_I2C_Master_Transmit(&OLED_I2C_HANDLER, OLED_I2C_ADDR, buf, 2, APP_I2C_TIMEOUT_MS);
-    App_I2C_Unlock();
+    OLED_Tx(buf, 2);
 }
 
 static void OLED_WriteData(uint8_t* data, uint16_t size)
@@ -133,10 +145,7 @@ static void OLED_WriteData(uint8_t* data, uint16_t size)
     while (size) {
         uint16_t chunk = size > 16 ? 16 : size;
         memcpy(buf + 1, data, chunk);
-        App_I2C_Lock();
-        HAL_I2C_Master_Transmit(&OLED_I2C_HANDLER, OLED_I2C_ADDR,
-                               buf, chunk + 1, APP_I2C_TIMEOUT_MS);
-        App_I2C_Unlock();
+        OLED_Tx(buf, (uint16_t)(chunk + 1));
         data += chunk;
         size -= chunk;
     }

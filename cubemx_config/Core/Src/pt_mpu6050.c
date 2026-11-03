@@ -87,22 +87,44 @@ void MPU6050_Read_ALL(MPU6050_Data* data)
     }
 }
 
-// mpu6050 写
+// mpu6050 写。调用方在调度器启动后须已持有 I2C 互斥锁。
 int mpu6050_write(unsigned char slaveaddr, unsigned char regaddr, int datalen, unsigned char* pdata)
 {
-
-    return HAL_I2C_Mem_Write(&hi2c2, slaveaddr << 1, regaddr, 1,
-                             pdata, datalen, 2) == HAL_OK ? 0 : -1;
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Write(&hi2c2, slaveaddr << 1, regaddr, 1,
+                                                 pdata, datalen, 2);
+    if (I2C2_Check(status, "I2C ERR mpu_wr\r\n") == 1) {
+        status = HAL_I2C_Mem_Write(&hi2c2, slaveaddr << 1, regaddr, 1,
+                                   pdata, datalen, 2);
+        I2C2_Check(status, "I2C ERR mpu_wr\r\n");
+    }
+    return status == HAL_OK ? 0 : -1;
 }
-// mpu6050 读
+// mpu6050 读。调用方在调度器启动后须已持有 I2C 互斥锁。
 int mpu6050_read(unsigned char slaveaddr, unsigned char regaddr, int datalen, unsigned char* pdata)
 {
-
-    return HAL_I2C_Mem_Read(&hi2c2, slaveaddr << 1, regaddr, 1,
-                            pdata, datalen, 2) == HAL_OK ? 0 : -1;
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(&hi2c2, slaveaddr << 1, regaddr, 1,
+                                                pdata, datalen, 2);
+    if (I2C2_Check(status, "I2C ERR mpu_rd\r\n") == 1) {
+        status = HAL_I2C_Mem_Read(&hi2c2, slaveaddr << 1, regaddr, 1,
+                                  pdata, datalen, 2);
+        I2C2_Check(status, "I2C ERR mpu_rd\r\n");
+    }
+    return status == HAL_OK ? 0 : -1;
 }
 
-// DMP解算 四元数转换欧拉角
+/*
+ * DMP FIFO is fed at 200 Hz and this task runs every 5 ms. One read per
+ * cycle leaves older packets queued when the two clocks drift, and the
+ * control loop then balances on stale pitch until the FIFO overflows.
+ * Drain while the caller holds the I2C mutex and publish only the newest
+ * valid packet. The cap keeps a deep backlog from holding the bus for the
+ * whole control period (a late cycle already stops the motors): each read
+ * is two 400 kHz transactions, so four reads still fit in the 5 ms period.
+ * A deeper backlog shrinks on later cycles.
+ */
+#define DMP_FIFO_DRAIN_MAX 4
+
+// DMP解算 四元数转换欧拉角。成功时姿态为本次读到的最新一包。
 int DMP_Pitch(void)
 {
     unsigned long timestamp;
@@ -110,19 +132,28 @@ int DMP_Pitch(void)
     unsigned char more;
     long quat[4];
     float q0, q1, q2, q3, sin_pitch;
-    if (dmp_read_fifo(gyro, accel, quat, &timestamp, &sensors, &more) != 0 ||
-        !(sensors & INV_WXYZ_QUAT)) {
-        return -1;
+    unsigned int reads;
+    int got = 0;
+
+    for (reads = 0; reads < DMP_FIFO_DRAIN_MAX; reads++) {
+        if (dmp_read_fifo(gyro, accel, quat, &timestamp, &sensors, &more) != 0 ||
+            !(sensors & INV_WXYZ_QUAT)) {
+            break;
+        }
+        /* Q30 fixed point must be scaled before products to avoid integer overflow. */
+        q0 = quat[0] / 1073741824.0f;
+        q1 = quat[1] / 1073741824.0f;
+        q2 = quat[2] / 1073741824.0f;
+        q3 = quat[3] / 1073741824.0f;
+        sin_pitch = 2.0f * (q0 * q2 - q1 * q3);
+        if (sin_pitch > 1.0f) sin_pitch = 1.0f;
+        if (sin_pitch < -1.0f) sin_pitch = -1.0f;
+        gGlobalData.PitchAngle = asinf(sin_pitch) * (180.0f / M_PI);
+        gGlobalData.data.gyro_y = gyro[1] / MPU6050_GYRO_SCALE_2000;
+        got = 1;
+        if (more == 0) {
+            break;
+        }
     }
-    /* Q30 fixed point must be scaled before products to avoid integer overflow. */
-    q0 = quat[0] / 1073741824.0f;
-    q1 = quat[1] / 1073741824.0f;
-    q2 = quat[2] / 1073741824.0f;
-    q3 = quat[3] / 1073741824.0f;
-    sin_pitch = 2.0f * (q0 * q2 - q1 * q3);
-    if (sin_pitch > 1.0f) sin_pitch = 1.0f;
-    if (sin_pitch < -1.0f) sin_pitch = -1.0f;
-    gGlobalData.PitchAngle = asinf(sin_pitch) * (180.0f / M_PI);
-    gGlobalData.data.gyro_y = gyro[1] / MPU6050_GYRO_SCALE_2000;
-    return 0;
+    return got ? 0 : -1;
 }

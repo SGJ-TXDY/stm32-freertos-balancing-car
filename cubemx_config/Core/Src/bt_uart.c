@@ -1,64 +1,113 @@
 #include "bt_uart.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include <string.h>
 
-BT_UartRx_t g_bt_rx;
+/*
+ * USART2 ISR is the only producer; the communication task is the only
+ * consumer. Bytes are queued even while a previous command is still being
+ * parsed, so a following $STOP# is not dropped. 256 bytes is about 260 ms
+ * at 9600 baud.
+ */
+#define BT_RING_SIZE 256u
+#define BT_RING_MASK (BT_RING_SIZE - 1u)
 
-/* 初始化蓝牙串口接收 */
+static uint8_t s_ring[BT_RING_SIZE];
+static volatile uint16_t s_head;
+static volatile uint16_t s_tail;
+static volatile TaskHandle_t s_task;
+static uint8_t s_rx_byte;
+
+static void bt_push_from_isr(uint8_t data)
+{
+    uint16_t head = s_head;
+    uint16_t next = (uint16_t)((head + 1u) & BT_RING_MASK);
+    BaseType_t woken = pdFALSE;
+
+    if (next != s_tail) {
+        s_ring[head] = data;
+        s_head = next;
+    }
+    if (s_task != NULL &&
+        xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
+        vTaskNotifyGiveFromISR(s_task, &woken);
+        portYIELD_FROM_ISR(woken);
+    }
+}
+
+static void bt_arm_rx(void)
+{
+    (void)HAL_UART_Receive_IT(&huart2, &s_rx_byte, 1);
+}
+
 void BT_UART_Init(void)
 {
-    memset(&g_bt_rx, 0, sizeof(g_bt_rx));
-
-    HAL_UART_Receive_IT(&huart2, &g_bt_rx.rx_byte, 1);
+    s_head = 0;
+    s_tail = 0;
+    s_task = NULL;
+    bt_arm_rx();
 }
 
-/* 清空一帧 */
-void BT_UART_ClearFrame(void)
+void BT_UART_BindTask(void *task)
 {
-    memset(g_bt_rx.rx_buffer, 0, sizeof(g_bt_rx.rx_buffer));
-    g_bt_rx.rx_index = 0;
-    g_bt_rx.frame_ready = 0;
+    s_task = (TaskHandle_t)task;
 }
 
-/* 发送字符串到蓝牙串口 */
-void BT_UART_SendString(char* str)
+int BT_UART_Pop(uint8_t *byte)
 {
-    if (str == NULL) return;
+    uint16_t tail;
+    uint16_t head;
 
-    HAL_UART_Transmit(&huart2, (uint8_t*)str, strlen(str), 30);
+    if (byte == NULL) {
+        return 0;
+    }
+    taskENTER_CRITICAL();
+    tail = s_tail;
+    head = s_head;
+    if (tail == head) {
+        taskEXIT_CRITICAL();
+        return 0;
+    }
+    *byte = s_ring[tail];
+    s_tail = (uint16_t)((tail + 1u) & BT_RING_MASK);
+    taskEXIT_CRITICAL();
+    return 1;
 }
 
-/* 处理接收到的单字节 */
-void BT_UART_ProcessByte(uint8_t data)
+void BT_UART_Service(void)
 {
-    /* 如果已经接收到完整帧，先不覆盖，等主循环处理 */
-    if (g_bt_rx.frame_ready)
-    {
+    /* READY means IT reception was aborted (overrun) or never re-armed. */
+    if (huart2.RxState == HAL_UART_STATE_READY) {
+        __HAL_UART_CLEAR_OREFLAG(&huart2);
+        bt_arm_rx();
+    }
+}
+
+void BT_UART_SendString(char *str)
+{
+    if (str == NULL) {
         return;
     }
+    HAL_UART_Transmit(&huart2, (uint8_t *)str, (uint16_t)strlen(str), 30);
+}
 
-    /* 帧头同步：不是 '$' 且当前还没开始接收，则丢弃 */
-    if (g_bt_rx.rx_index == 0)
-    {
-        if (data != '$')
-        {
-            return;
-        }
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2) {
+        bt_push_from_isr(s_rx_byte);
+        bt_arm_rx();
     }
+}
 
-    if (g_bt_rx.rx_index < (BT_RX_BUFFER_SIZE - 1))
-    {
-        g_bt_rx.rx_buffer[g_bt_rx.rx_index++] = data;
-
-        /* 收到帧尾 '#'，判定一帧完成 */
-        if (data == '#')
-        {
-            g_bt_rx.rx_buffer[g_bt_rx.rx_index] = '\0';
-            g_bt_rx.frame_ready = 1;
-        }
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance != USART2) {
+        return;
     }
-    else
-    {
-        /* 缓冲区溢出，直接清空重来 */
-        BT_UART_ClearFrame();
+    /* ORE aborts the IT transfer and leaves RxState READY with RXNEIE off.
+     * Framing/noise errors keep the transfer running; do not start a second one. */
+    if (huart->RxState == HAL_UART_STATE_READY) {
+        __HAL_UART_CLEAR_OREFLAG(huart);
+        bt_arm_rx();
     }
 }

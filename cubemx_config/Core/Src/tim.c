@@ -30,7 +30,10 @@
 /* USER CODE BEGIN 0 */
 TIM_HandleTypeDef htim1;
 
-/* TIM1 init function */
+/* TIM1 init function.
+ * Prescaler 7199 and period 49 are a 200 Hz base at 72 MHz. The counter is
+ * not started and TIM1_UP stays disabled; ControlTask owns the 5 ms loop.
+ */
 void MX_TIM1_Init(void)
 {
     TIM_ClockConfigTypeDef sClockSourceConfig = {0};
@@ -262,12 +265,9 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
         /* USER CODE END TIM1_MspInit 0 */
         /* TIM1 clock enable */
         __HAL_RCC_TIM1_CLK_ENABLE();
-
-        /* TIM1 interrupt Init */
-        HAL_NVIC_SetPriority(TIM1_UP_IRQn, 6, 0);
-        HAL_NVIC_EnableIRQ(TIM1_UP_IRQn);
         /* USER CODE BEGIN TIM1_MspInit 1 */
-
+        /* Keep the update IRQ off even if regeneration arms TIM1_UP. */
+        HAL_NVIC_DisableIRQ(TIM1_UP_IRQn);
         /* USER CODE END TIM1_MspInit 1 */
     }
 }

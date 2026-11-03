@@ -20,11 +20,11 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f1xx_it.h"
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
 #include "FreeRTOS.h"
 #include "task.h"
 extern void xPortSysTickHandler(void);
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,13 +54,16 @@ extern void xPortSysTickHandler(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+/* SVC_Handler and PendSV_Handler are supplied by the Cortex-M3 port
+ * (FreeRTOSConfig.h maps vPortSVCHandler / xPortPendSVHandler).
+ * cubemx_config.ioc turns off CubeMX generation of those two handlers.
+ * SysTick stays generated; the FreeRTOS call is in its USER CODE block. */
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
 extern UART_HandleTypeDef huart2;
 /* USER CODE BEGIN EV */
-#include "tim.h"
+
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -114,11 +117,6 @@ void UsageFault_Handler(void)
 }
 
 /**
-  * @brief This function handles System service call via SWI instruction.
-  */
-
-
-/**
   * @brief This function handles Debug monitor.
   */
 void DebugMon_Handler(void)
@@ -132,11 +130,6 @@ void DebugMon_Handler(void)
 }
 
 /**
-  * @brief This function handles Pendable request for system service.
-  */
-
-
-/**
   * @brief This function handles System tick timer.
   */
 void SysTick_Handler(void)
@@ -145,11 +138,10 @@ void SysTick_Handler(void)
 
     /* USER CODE END SysTick_IRQn 0 */
     HAL_IncTick();
+    /* USER CODE BEGIN SysTick_IRQn 1 */
     if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
         xPortSysTickHandler();
     }
-    /* USER CODE BEGIN SysTick_IRQn 1 */
-
     /* USER CODE END SysTick_IRQn 1 */
 }
 
@@ -175,18 +167,5 @@ void USART2_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-/**
-  * @brief This function handles TIM1 update interrupt.
-  */
-void TIM1_UP_IRQHandler(void)
-{
-    /* USER CODE BEGIN TIM1_UP_IRQn 0 */
-
-    /* USER CODE END TIM1_UP_IRQn 0 */
-    HAL_TIM_IRQHandler(&htim1);
-    /* USER CODE BEGIN TIM1_UP_IRQn 1 */
-
-    /* USER CODE END TIM1_UP_IRQn 1 */
-}
-
+/* TIM1 update IRQ is not armed. ControlTask is the 5 ms loop. */
 /* USER CODE END 1 */

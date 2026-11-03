@@ -17,23 +17,22 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-#include <stdio.h>
-#include <string.h>
 #include "main.h"
 #include "i2c.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <string.h>
 #include "pt_public.h"
 #include "bt_uart.h"
 #include "display.h"
 #include "oled.h"
 #include "pt_mpu6050.h"
-#include "tim.h"
-#include "usart.h"
-#include "gpio.h"
 #include "encode.h"
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 #include "tb6612.h"
 #include "app_rtos.h"
 
@@ -68,14 +67,7 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart)
-{
-    if (huart->Instance == USART2)
-    {
-        BT_UART_ProcessByte(g_bt_rx.rx_byte);
-        HAL_UART_Receive_IT(&huart2, &g_bt_rx.rx_byte, 1);
-    }
-}
+/* USART2 RX/error callbacks live in bt_uart.c so they survive CubeMX regeneration. */
 /* USER CODE END 0 */
 
 /**
@@ -84,8 +76,21 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart)
   */
 int main(void)
 {
+    /* USER CODE BEGIN 1 */
+
+    /* USER CODE END 1 */
+
     HAL_Init();
+
+    /* USER CODE BEGIN Init */
+
+    /* USER CODE END Init */
+
     SystemClock_Config();
+
+    /* USER CODE BEGIN SysInit */
+
+    /* USER CODE END SysInit */
 
     MX_GPIO_Init();
     MX_I2C2_Init();
@@ -95,7 +100,7 @@ int main(void)
     MX_TIM4_Init();
     MX_USART1_UART_Init();
     MX_USART2_UART_Init();
-
+    /* USER CODE BEGIN 2 */
     /* PWM starts at zero. ARM is requested explicitly over Bluetooth. */
     startpwm();
     setpwm(0, 0);
@@ -109,8 +114,17 @@ int main(void)
     }
     BT_UART_Init();
     App_RTOS_Start();
-    while (1) {}
+    /* USER CODE END 2 */
 
+    /* Infinite loop */
+    /* USER CODE BEGIN WHILE */
+    while (1)
+    {
+        /* USER CODE END WHILE */
+
+        /* USER CODE BEGIN 3 */
+    }
+    /* USER CODE END 3 */
 }
 
 /**

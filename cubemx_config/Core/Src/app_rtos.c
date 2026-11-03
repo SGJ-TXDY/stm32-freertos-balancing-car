@@ -123,27 +123,58 @@ static void UiTask(void *argument)
     }
 }
 
+static int FeedFrame(uint8_t data, char *frame, size_t *len)
+{
+    if (*len == 0) {
+        if (data != '$') {
+            return 0;
+        }
+    }
+    if (*len >= (BT_RX_BUFFER_SIZE - 1)) {
+        *len = 0;
+        if (data != '$') {
+            return 0;
+        }
+    }
+    frame[(*len)++] = (char)data;
+    if (data == '#') {
+        frame[*len] = '\0';
+        return 1;
+    }
+    return 0;
+}
+
+static void HandleFrame(char *frame)
+{
+    ControlCommand command;
+    const char *reply = "ERR:COMMAND\r\n";
+    if (strcmp(frame, "$ARM#") == 0 || strcmp(frame, "$STOP#") == 0) {
+        command = strcmp(frame, "$ARM#") == 0 ? COMMAND_ARM : COMMAND_STOP;
+        reply = xQueueSend(command_queue, &command, 0) == pdTRUE ?
+                "OK:QUEUED\r\n" : "ERR:BUSY\r\n";
+    }
+    BT_UART_SendString((char *)reply);
+    HAL_UART_Transmit(&huart1, (uint8_t *)frame, (uint16_t)strlen(frame), 20);
+    HAL_UART_Transmit(&huart1, (uint8_t *)"\r\n", 2, 20);
+}
+
 static void CommunicationTask(void *argument)
 {
     char frame[BT_RX_BUFFER_SIZE];
+    size_t len = 0;
+    uint8_t byte;
     (void)argument;
+    BT_UART_BindTask(xTaskGetCurrentTaskHandle());
     for (;;) {
-        if (g_bt_rx.frame_ready) {
-            ControlCommand command;
-            const char *reply = "ERR:COMMAND\r\n";
-            memcpy(frame, g_bt_rx.rx_buffer, sizeof(frame));
-            frame[sizeof(frame) - 1] = '\0';
-            BT_UART_ClearFrame();
-            if (strcmp(frame, "$ARM#") == 0 || strcmp(frame, "$STOP#") == 0) {
-                command = strcmp(frame, "$ARM#") == 0 ? COMMAND_ARM : COMMAND_STOP;
-                reply = xQueueSend(command_queue, &command, 0) == pdTRUE ?
-                        "OK:QUEUED\r\n" : "ERR:BUSY\r\n";
+        while (BT_UART_Pop(&byte)) {
+            if (FeedFrame(byte, frame, &len)) {
+                HandleFrame(frame);
+                len = 0;
             }
-            BT_UART_SendString((char *)reply);
-            HAL_UART_Transmit(&huart1, (uint8_t *)frame, (uint16_t)strlen(frame), 20);
-            HAL_UART_Transmit(&huart1, (uint8_t *)"\r\n", 2, 20);
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        /* Wake on the next byte, and also poll so a stopped RX can be re-armed. */
+        BT_UART_Service();
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
     }
 }
 

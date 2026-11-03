@@ -4,20 +4,20 @@
 
 `main.c` 完成 HAL、72 MHz 时钟树、GPIO、I²C2、TIM1/2/3/4、USART1/2 初始化，启动零占空比 PWM 与编码器计数，再初始化 OLED 和 MPU6050 DMP，开启蓝牙逐字节接收，最后调用 `App_RTOS_Start()`。
 
-`App_RTOS_Start()` 创建 I²C 互斥锁、状态队列、命令队列及三个任务，然后启动调度器。TIM1 保留外设配置，控制工作由 FreeRTOS 任务完成，不启动 TIM1 控制中断。
+`App_RTOS_Start()` 创建 I²C 互斥锁、状态队列、命令队列及三个任务，然后启动调度器。TIM1 只保留 CubeMX 里的 200 Hz 时基配置，计数器和 TIM1_UP 中断都不启动；5 ms 控制在 `ControlTask`。
 
 ## 中断与任务边界
 
-- `USART2_IRQHandler → HAL_UART_RxCpltCallback → BT_UART_ProcessByte`：组帧并重新挂接单字节接收。完整帧就绪期间，接收器不覆盖缓冲区；通信任务取走该帧后清除标志。
-- `SysTick_Handler`：先增加 HAL tick，调度器启动后再调用 `xPortSysTickHandler`。
-- `SVC_Handler / PendSV_Handler`：通过 `FreeRTOSConfig.h` 的映射由官方 Cortex-M3 移植层实现。
+- `USART2_IRQHandler` 把字节写入环形缓冲并通知通信任务，通信任务再组帧。接收中断在溢出错误后会重新打开。
+- `SysTick_Handler`：先增加 HAL tick，`USER CODE` 段里在调度器启动后调用 `xPortSysTickHandler`。
+- `SVC_Handler / PendSV_Handler`：通过 `FreeRTOSConfig.h` 的映射由官方 Cortex-M3 移植层实现。`.ioc` 关闭了这两个处理函数的生成，避免和移植层重复定义。
 - 通信任务把 ARM / STOP 放入命令队列；控制任务拥有电机输出和 PID 状态，其他任务不直接改写控制变量。
 
-蓝牙使用单帧缓冲，请等待上一条指令的回复后再发送下一条。USART2 中断优先级为 5；内核允许调用 FromISR API 的最高逻辑优先级也为 5，SysTick 和 PendSV 使用优先级 15。
+蓝牙可以连续发送多条 `$...#` 帧。USART2 中断优先级为 5；内核允许调用 FromISR API 的最高逻辑优先级也为 5，SysTick 和 PendSV 使用优先级 15。
 
 ## 共享 I²C
 
-运行期的 MPU6050 FIFO 读取整体持有互斥锁，OLED 在每条命令或每个 16 字节数据块传输时持锁。锁采用 FreeRTOS 的优先级继承机制，底层传输超时为 2 ms，避免整个 OLED 帧占用总线。
+运行期的 MPU6050 FIFO 读取整体持有互斥锁，OLED 在每条命令或每个 16 字节数据块传输时持锁。锁采用 FreeRTOS 的优先级继承机制，底层传输超时为 2 ms，避免整个 OLED 帧占用总线。连续失败达到 3 次时，在已持有的互斥锁内复位 I²C（DeInit、GPIO 上 9 个 SCL 脉冲、重新初始化），并在 USART1 记录错误。
 
 初始化阶段调度器尚未启动，总线按顺序访问。此时 `App_I2C_Lock / Unlock` 不调用互斥锁 API。
 
@@ -37,8 +37,8 @@ GNU 构建从 `.uvprojx` 提取 C 源文件清单，替换为 GNU 启动文件�
 
 ## CubeMX 重新生成时保留的接入点
 
-1. `main.c` 的应用初始化与 `App_RTOS_Start()`。
-2. `stm32f1xx_it.c` 的 SysTick 衔接与 SVC / PendSV 归属。
+1. `main.c` 的应用初始化在 `USER CODE BEGIN 2`，外设初始化列表留给 CubeMX。
+2. `stm32f1xx_it.c` 的 SysTick 衔接在 `USER CODE BEGIN SysTick_IRQn 1`。不要重新打开 SVC / PendSV 处理函数生成。
 3. `usart.c` 的 TX 复用推挽、RX 输入配置和 USART2 中断优先级。
 4. `oled.c` 的短传输与总线锁，以及 `pt_mpu6050.c` 的 DMP 初始化。
 5. Keil 工程内的 FreeRTOS 源文件、头文件目录和 `app_rtos.c`。

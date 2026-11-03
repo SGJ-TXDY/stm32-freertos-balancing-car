@@ -87,19 +87,29 @@ void MPU6050_Read_ALL(MPU6050_Data* data)
     }
 }
 
-// mpu6050 写
+// mpu6050 写。调用方在调度器启动后须已持有 I2C 互斥锁。
 int mpu6050_write(unsigned char slaveaddr, unsigned char regaddr, int datalen, unsigned char* pdata)
 {
-
-    return HAL_I2C_Mem_Write(&hi2c2, slaveaddr << 1, regaddr, 1,
-                             pdata, datalen, 2) == HAL_OK ? 0 : -1;
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Write(&hi2c2, slaveaddr << 1, regaddr, 1,
+                                                 pdata, datalen, 2);
+    if (I2C2_Check(status, "I2C ERR mpu_wr\r\n") == 1) {
+        status = HAL_I2C_Mem_Write(&hi2c2, slaveaddr << 1, regaddr, 1,
+                                   pdata, datalen, 2);
+        I2C2_Check(status, "I2C ERR mpu_wr\r\n");
+    }
+    return status == HAL_OK ? 0 : -1;
 }
-// mpu6050 读
+// mpu6050 读。调用方在调度器启动后须已持有 I2C 互斥锁。
 int mpu6050_read(unsigned char slaveaddr, unsigned char regaddr, int datalen, unsigned char* pdata)
 {
-
-    return HAL_I2C_Mem_Read(&hi2c2, slaveaddr << 1, regaddr, 1,
-                            pdata, datalen, 2) == HAL_OK ? 0 : -1;
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(&hi2c2, slaveaddr << 1, regaddr, 1,
+                                                pdata, datalen, 2);
+    if (I2C2_Check(status, "I2C ERR mpu_rd\r\n") == 1) {
+        status = HAL_I2C_Mem_Read(&hi2c2, slaveaddr << 1, regaddr, 1,
+                                  pdata, datalen, 2);
+        I2C2_Check(status, "I2C ERR mpu_rd\r\n");
+    }
+    return status == HAL_OK ? 0 : -1;
 }
 
 /*

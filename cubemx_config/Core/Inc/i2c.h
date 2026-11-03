@@ -41,7 +41,9 @@ extern I2C_HandleTypeDef hi2c2;
 void MX_I2C2_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+/* Returns 1 after a bus recovery so the caller can retry the transfer once.
+ * The caller must already hold App_I2C_Lock once the scheduler is running. */
+int I2C2_Check(HAL_StatusTypeDef status, const char *op);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

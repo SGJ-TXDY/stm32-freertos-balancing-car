@@ -7,19 +7,13 @@
 
 #define BT_RX_BUFFER_SIZE    64
 
-typedef struct
-{
-    uint8_t rx_byte;                         // 单字节接收缓存
-    uint8_t rx_buffer[BT_RX_BUFFER_SIZE];    // 一帧数据缓存
-    uint8_t rx_index;                        // 当前接收下标
-    volatile uint8_t frame_ready;                     // 一帧接收完成标志
-} BT_UartRx_t;
-
-extern BT_UartRx_t g_bt_rx;
-
 void BT_UART_Init(void);
-void BT_UART_ProcessByte(uint8_t data);
+/* Task that drains the byte ring. Pass xTaskGetCurrentTaskHandle(). */
+void BT_UART_BindTask(void *task);
+/* Pop one byte queued by the USART2 ISR. Returns 1 if a byte was stored. */
+int BT_UART_Pop(uint8_t *byte);
+/* Re-arm RX if an overrun or a busy HAL lock left reception stopped. */
+void BT_UART_Service(void);
 void BT_UART_SendString(char *str);
-void BT_UART_ClearFrame(void);
 
 #endif

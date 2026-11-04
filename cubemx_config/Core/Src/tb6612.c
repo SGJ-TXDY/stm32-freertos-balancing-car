@@ -57,6 +57,14 @@ void Motor_Stop(void)
     HAL_GPIO_WritePin(GPIOB, AIN1_Pin | AIN2_Pin | BIN1_Pin | BIN2_Pin, GPIO_PIN_RESET);
 }
 
+void Motor_EmergencyStop(void)
+{
+    /* Do not call setpwm(): stopping must not change the direction pins first. */
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, 0);
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_4, 0);
+    Motor_Stop();
+}
+
 void Motor_Left(MOTO_DIR d)
 {
     if (d == FORWARD)     //左电机前进

@@ -59,6 +59,10 @@
 
 
 // º¯ÊýÉùÃ÷
+#define DMP_PITCH_OK         0
+#define DMP_PITCH_NO_SAMPLE (-1)
+#define DMP_PITCH_UNSAFE    (-2)
+
 extern int MPU6050_Init(void);
 extern void MPU6050_Read_ALL(MPU6050_Data *data);
 extern int mpu6050_write(unsigned char slaveaddr, unsigned char regaddr, int datalen, unsigned char *pdata);

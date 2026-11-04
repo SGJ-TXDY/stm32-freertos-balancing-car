@@ -14,6 +14,8 @@ void setpwm(int pwm_left, int pwm_right);
 void Motor_Left(MOTO_DIR d);   // 左电机
 void Motor_Right(MOTO_DIR d); // 右电机
 void Motor_Stop(void);           // 停止
+/* Bounded register/GPIO writes, safe from SysTick as well as task context. */
+void Motor_EmergencyStop(void);
 void Car_Go(void);			//开车
 void Car_Go_High(void);
 void Car_Go_Mid(void);

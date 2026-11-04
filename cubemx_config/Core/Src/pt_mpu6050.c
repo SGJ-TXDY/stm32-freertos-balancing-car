@@ -117,28 +117,32 @@ int mpu6050_read(unsigned char slaveaddr, unsigned char regaddr, int datalen, un
  * cycle leaves older packets queued when the two clocks drift, and the
  * control loop then balances on stale pitch until the FIFO overflows.
  * Drain while the caller holds the I2C mutex and publish only the newest
- * valid packet. The cap keeps a deep backlog from holding the bus for the
- * whole control period (a late cycle already stops the motors): each read
- * is two 400 kHz transactions, so four reads still fit in the 5 ms period.
- * A deeper backlog shrinks on later cycles.
+ * packet only after reaching the end of the queue. A bounded drain must
+ * never relabel an old packet as fresh: if more packets remain, discard
+ * this result and let ControlTask disarm while later cycles catch up.
+ * Any error after a partial drain also invalidates the entire result.
  */
 #define DMP_FIFO_DRAIN_MAX 4
 
-// DMP解算 四元数转换欧拉角。成功时姿态为本次读到的最新一包。
+// Only a fully drained, valid FIFO read may replace the published attitude.
 int DMP_Pitch(void)
 {
     unsigned long timestamp;
     short gyro[3], accel[3], sensors;
     unsigned char more;
     long quat[4];
-    float q0, q1, q2, q3, sin_pitch;
+    float q0, q1, q2, q3, sin_pitch, pitch;
     unsigned int reads;
-    int got = 0;
 
     for (reads = 0; reads < DMP_FIFO_DRAIN_MAX; reads++) {
-        if (dmp_read_fifo(gyro, accel, quat, &timestamp, &sensors, &more) != 0 ||
-            !(sensors & INV_WXYZ_QUAT)) {
-            break;
+        if (dmp_read_fifo(gyro, accel, quat, &timestamp, &sensors, &more) != 0) {
+            return reads == 0 ? DMP_PITCH_NO_SAMPLE : DMP_PITCH_UNSAFE;
+        }
+        if (!(sensors & INV_WXYZ_QUAT)) {
+            return DMP_PITCH_UNSAFE;
+        }
+        if (more != 0) {
+            continue;
         }
         /* Q30 fixed point must be scaled before products to avoid integer overflow. */
         q0 = quat[0] / 1073741824.0f;
@@ -148,12 +152,13 @@ int DMP_Pitch(void)
         sin_pitch = 2.0f * (q0 * q2 - q1 * q3);
         if (sin_pitch > 1.0f) sin_pitch = 1.0f;
         if (sin_pitch < -1.0f) sin_pitch = -1.0f;
-        gGlobalData.PitchAngle = asinf(sin_pitch) * (180.0f / M_PI);
-        gGlobalData.data.gyro_y = gyro[1] / MPU6050_GYRO_SCALE_2000;
-        got = 1;
-        if (more == 0) {
-            break;
+        pitch = asinf(sin_pitch) * (180.0f / M_PI);
+        if (!isfinite(pitch)) {
+            return DMP_PITCH_UNSAFE;
         }
+        gGlobalData.PitchAngle = pitch;
+        gGlobalData.data.gyro_y = gyro[1] / MPU6050_GYRO_SCALE_2000;
+        return DMP_PITCH_OK;
     }
-    return got ? 0 : -1;
+    return DMP_PITCH_UNSAFE;
 }

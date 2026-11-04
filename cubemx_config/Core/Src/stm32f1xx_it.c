@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "app_rtos.h"
 extern void xPortSysTickHandler(void);
 /* USER CODE END Includes */
 
@@ -139,6 +140,7 @@ void SysTick_Handler(void)
     /* USER CODE END SysTick_IRQn 0 */
     HAL_IncTick();
     /* USER CODE BEGIN SysTick_IRQn 1 */
+    App_ControlWatchdogTick();
     if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
         xPortSysTickHandler();
     }

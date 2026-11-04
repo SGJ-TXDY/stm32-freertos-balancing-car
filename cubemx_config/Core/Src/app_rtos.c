@@ -23,6 +23,24 @@ static SemaphoreHandle_t i2c_mutex;
 static QueueHandle_t ui_queue;
 static QueueHandle_t command_queue;
 
+/* Only ControlTask feeds this watchdog. SysTick can cut motor power even
+ * while that task is stuck in the I2C driver, recovery, or a bus mutex.
+ * Task-side motor writes and these fields are protected from SysTick by
+ * a short critical section; a trip must be acknowledged before re-arming. */
+static volatile uint32_t control_last_output_ms;
+static volatile uint8_t control_watchdog_active;
+static volatile uint8_t control_watchdog_tripped;
+
+void App_ControlWatchdogTick(void)
+{
+    if (control_watchdog_active &&
+        (uint32_t)(HAL_GetTick() - control_last_output_ms) >= APP_CONTROL_WATCHDOG_MS) {
+        control_watchdog_active = 0;
+        control_watchdog_tripped = 1;
+        Motor_EmergencyStop();
+    }
+}
+
 void App_I2C_Lock(void)
 {
     if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
@@ -49,11 +67,14 @@ static void ControlTask(void *argument)
     (void)argument;
 
     for (;;) {
-        int left, right, fresh;
-        /* DMP_Pitch drains queued FIFO packets. Hold the bus until the newest one is published. */
+        int left, right, fresh, sample_status, reject_arm;
+        int pwm = 0;
+        TickType_t now;
+        /* Only a read that reaches the FIFO tail is fresh. */
         App_I2C_Lock();
-        fresh = (DMP_Pitch() == 0);
+        sample_status = DMP_Pitch();
         App_I2C_Unlock();
+        fresh = (sample_status == DMP_PITCH_OK);
         if (fresh) {
             last_sample = xTaskGetTickCount();
             have_sample = 1;
@@ -61,10 +82,15 @@ static void ControlTask(void *argument)
 
         left = -Read_Encoder(MOTOR_LEFT);
         right = Read_Encoder(MOTOR_RIGHT);
+        reject_arm = control_watchdog_tripped || sample_status == DMP_PITCH_UNSAFE ||
+                     xTaskGetTickCount() - wake >= period;
+        if (reject_arm) {
+            armed = 0;
+        }
         while (xQueueReceive(command_queue, &command, 0) == pdTRUE) {
             if (command == COMMAND_STOP) {
                 armed = 0;
-            } else if (have_sample && fresh &&
+            } else if (!reject_arm && have_sample && fresh &&
                        fabs(gGlobalData.PitchAngle - Car_zero) < 8.0) {
                 armed = 1;
                 PID_Reset();
@@ -78,12 +104,32 @@ static void ControlTask(void *argument)
         }
 
         if (armed) {
-            int pwm = zhili((float)gGlobalData.PitchAngle,
-                            gGlobalData.data.gyro_y) + sudu(left, right);
+            pwm = zhili((float)gGlobalData.PitchAngle,
+                        gGlobalData.data.gyro_y) + sudu(left, right);
+        }
+
+        /* Check again immediately before writing PWM. A watchdog interrupt
+         * during PID computation must not be undone by a late task write.
+         * Never feed the watchdog at the start of an I2C operation. */
+        taskENTER_CRITICAL();
+        now = xTaskGetTickCount();
+        if (control_watchdog_tripped || now - wake >= period) {
+            armed = 0;
+        }
+        if (now - wake >= period) {
+            wake = now;
+        }
+        if (armed) {
+            control_last_output_ms = HAL_GetTick();
+            control_watchdog_active = 1;
             setpwm(pwm, pwm);
         } else {
-            setpwm(0, 0);
-            Motor_Stop();
+            control_watchdog_active = 0;
+            Motor_EmergencyStop();
+        }
+        control_watchdog_tripped = 0;
+        taskEXIT_CRITICAL();
+        if (!armed) {
             PID_Reset();
         }
 
@@ -92,13 +138,6 @@ static void ControlTask(void *argument)
         snapshot.armed = armed;
         xQueueOverwrite(ui_queue, &snapshot);
 
-        /* A delayed cycle must not cause a burst of catch-up motor updates. */
-        if (xTaskGetTickCount() - wake >= period) {
-            armed = 0;
-            setpwm(0, 0);
-            Motor_Stop();
-            wake = xTaskGetTickCount();
-        }
         vTaskDelayUntil(&wake, period);
     }
 }
